@@ -5,7 +5,7 @@ C# **Microsoft Orleans**(Actor Model) 기반 **MMO 월드** 게임서버.
 
 ## 스택
 - .NET 10 / C#
-- Microsoft Orleans 9.x (Grain = actor)
+- Microsoft Orleans 10.x (Grain = actor)
 - TCP + 커스텀 바이너리 프로토콜 (길이 프리픽스 프레이밍 + MemoryPack)
 - xUnit + Orleans `TestingHost` (TDD)
 
