@@ -189,9 +189,9 @@ public sealed class GatewaySession
             await _stream.WriteAsync(frame);
             await _stream.FlushAsync();
         }
-        catch (Exception ex) when (ex is IOException or SocketException)
+        catch (Exception ex) when (ex is IOException or SocketException or ObjectDisposedException)
         {
-            // peer gone; read loop will observe and clean up
+            // peer gone, or socket already disposed by cleanup while a late stream callback fired — drop silently
         }
         finally
         {
@@ -216,7 +216,8 @@ public sealed class GatewaySession
         }
 
         _tcp.Dispose();
-        _sendLock.Dispose();
+        // _sendLock는 의도적으로 Dispose하지 않는다: 구독 해제 후에도 in-flight 스트림 콜백이
+        // SendAsync에서 WaitAsync를 호출할 수 있어, 해제된 세마포어 사용(ObjectDisposedException)을 피한다.
         _logger.LogInformation("Session for player {PlayerId} closed", _playerId);
     }
 }
