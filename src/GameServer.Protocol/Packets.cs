@@ -18,6 +18,14 @@ public partial record MoveRequest(float X, float Y);
 [MemoryPackable]
 public partial record EntityMoved(long PlayerId, float X, float Y);
 
+/// <summary>서버 → 클라이언트: 관심영역에 엔티티가 입장했음을 알리는 브로드캐스트.</summary>
+[MemoryPackable]
+public partial record EntityEntered(long PlayerId, string Name, float X, float Y);
+
+/// <summary>서버 → 클라이언트: 관심영역에서 엔티티가 퇴장했음을 알리는 브로드캐스트.</summary>
+[MemoryPackable]
+public partial record EntityLeft(long PlayerId);
+
 /// <summary>서버 → 클라이언트: 오류 통지.</summary>
 [MemoryPackable]
 public partial record ErrorPacket(string Message);

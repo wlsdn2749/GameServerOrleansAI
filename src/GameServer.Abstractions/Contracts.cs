@@ -51,6 +51,10 @@ public static class GameStreams
 /// <summary>월드 상수.</summary>
 public static class WorldConstants
 {
-    /// <summary>PR #1 단계의 단일 존 식별자(AOI 격자 분할은 추후 PR).</summary>
-    public const string DefaultZoneId = "zone-0";
+    /// <summary>스폰 좌표(0,0).</summary>
+    public const float SpawnX = 0f;
+    public const float SpawnY = 0f;
+
+    /// <summary>스폰 좌표가 속한 셀의 존 식별자.</summary>
+    public static readonly string DefaultZoneId = WorldGrid.ZoneIdOf(SpawnX, SpawnY);
 }

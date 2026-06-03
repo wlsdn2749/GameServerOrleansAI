@@ -11,4 +11,7 @@ public interface IPlayerGrain : IGrainWithIntegerKey
 
     /// <summary>현재 스냅샷을 반환한다.</summary>
     Task<PlayerSnapshot> GetSnapshot();
+
+    /// <summary>로그아웃: 현재 소속 존에서 퇴장한다(연결 종료 시 게이트웨이가 호출, 멤버십 단일 진실원).</summary>
+    Task Logout();
 }

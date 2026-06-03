@@ -2,10 +2,13 @@ using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using GameServer.Protocol;
 
-// 사용법: dotnet run --project tools/GameServer.TestClient -- <name> [host] [port]
+// 사용법: dotnet run --project tools/GameServer.TestClient -- <name> [host] [port] [centerX] [centerY]
+// centerX/centerY를 주면 그 좌표 근방(±8)에서만 움직인다 → AOI(관심영역) 격리 시연용.
 string name = args.Length > 0 ? args[0] : $"player-{Random.Shared.Next(1000, 9999)}";
 string host = args.Length > 1 ? args[1] : "127.0.0.1";
 int port = args.Length > 2 ? int.Parse(args[2]) : 9000;
+float centerX = args.Length > 3 ? float.Parse(args[3]) : 0f;
+float centerY = args.Length > 4 ? float.Parse(args[4]) : 0f;
 
 using var tcp = new TcpClient();
 await tcp.ConnectAsync(host, port);
@@ -51,8 +54,8 @@ var rng = new Random();
 while (tcp.Connected)
 {
     await Task.Delay(2000);
-    float x = rng.Next(0, 100);
-    float y = rng.Next(0, 100);
+    float x = centerX + rng.Next(-8, 9);
+    float y = centerY + rng.Next(-8, 9);
     Console.WriteLine($"[{name}] -> Move({x}, {y})");
     await SendAsync(Opcode.MoveReq, new MoveRequest(x, y));
 }
@@ -74,6 +77,23 @@ void HandlePacket(Opcode opcode, byte[] payload)
             var moved = MessageCodec.Decode<EntityMoved>(payload);
             string who = moved.PlayerId == myId ? "me" : $"#{moved.PlayerId}";
             Console.WriteLine($"[{name}] <- EntityMoved {who} -> ({moved.X},{moved.Y})");
+            break;
+
+        case Opcode.EntityEntered:
+            var entered = MessageCodec.Decode<EntityEntered>(payload);
+            if (entered.PlayerId != myId)
+                Console.WriteLine($"[{name}] <- EntityEntered #{entered.PlayerId} '{entered.Name}' at ({entered.X},{entered.Y})");
+            break;
+
+        case Opcode.EntityLeft:
+            var left = MessageCodec.Decode<EntityLeft>(payload);
+            if (left.PlayerId != myId) // 자기 자신의 셀 이동에 따른 self-leave는 표시하지 않음
+                Console.WriteLine($"[{name}] <- EntityLeft #{left.PlayerId}");
+            break;
+
+        case Opcode.Error:
+            var err = MessageCodec.Decode<ErrorPacket>(payload);
+            Console.WriteLine($"[{name}] <- Error: {err.Message}");
             break;
 
         default:

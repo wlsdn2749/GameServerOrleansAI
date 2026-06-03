@@ -8,5 +8,7 @@ public enum Opcode : ushort
     LoginResp = 2,
     MoveReq = 3,
     EntityMoved = 4,
+    EntityEntered = 5,
+    EntityLeft = 6,
     Error = 255,
 }
