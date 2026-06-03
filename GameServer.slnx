@@ -1,2 +1,15 @@
 <Solution>
+  <Folder Name="/src/">
+    <Project Path="src/GameServer.Abstractions/GameServer.Abstractions.csproj" />
+    <Project Path="src/GameServer.Gateway/GameServer.Gateway.csproj" />
+    <Project Path="src/GameServer.Grains/GameServer.Grains.csproj" />
+    <Project Path="src/GameServer.Protocol/GameServer.Protocol.csproj" />
+    <Project Path="src/GameServer.Silo/GameServer.Silo.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/GameServer.Tests/GameServer.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/GameServer.TestClient/GameServer.TestClient.csproj" />
+  </Folder>
 </Solution>
