@@ -23,9 +23,9 @@ public sealed class PlayerGrain(
     {
         long id = this.GetPrimaryKeyLong();
         state.State.Name = name;
-        state.State.ZoneId = WorldConstants.DefaultZoneId;
-        state.State.X = 0f;
-        state.State.Y = 0f;
+        state.State.X = WorldConstants.SpawnX;
+        state.State.Y = WorldConstants.SpawnY;
+        state.State.ZoneId = WorldGrid.ZoneIdOf(state.State.X, state.State.Y);
         state.State.LoggedIn = true;
         await state.WriteStateAsync();
 
@@ -37,12 +37,23 @@ public sealed class PlayerGrain(
 
     public async Task Move(float x, float y)
     {
+        long id = this.GetPrimaryKeyLong();
+        string oldZoneId = state.State.ZoneId;
+        string newZoneId = WorldGrid.ZoneIdOf(x, y);
+
         state.State.X = x;
         state.State.Y = y;
+        state.State.ZoneId = newZoneId;
         await state.WriteStateAsync();
 
-        var zone = GrainFactory.GetGrain<IZoneGrain>(state.State.ZoneId);
-        await zone.NotifyMove(this.GetPrimaryKeyLong(), x, y);
+        // 셀 경계를 넘었으면 이전 존에서 퇴장하고 새 존에 입장한다.
+        if (newZoneId != oldZoneId)
+        {
+            await GrainFactory.GetGrain<IZoneGrain>(oldZoneId).Leave(id);
+            await GrainFactory.GetGrain<IZoneGrain>(newZoneId).Enter(Snapshot(id));
+        }
+
+        await GrainFactory.GetGrain<IZoneGrain>(newZoneId).NotifyMove(id, x, y);
     }
 
     public Task<PlayerSnapshot> GetSnapshot()

@@ -24,8 +24,9 @@ public sealed class GatewaySession
     private readonly List<byte> _inbound = [];
 
     private long _playerId;
-    private string _zoneId = "";
-    private StreamSubscriptionHandle<ZoneEvent>? _subscription;
+    private string _currentZoneId = "";
+    private IStreamProvider? _streamProvider;
+    private readonly Dictionary<string, StreamSubscriptionHandle<ZoneEvent>> _subscriptions = [];
 
     public GatewaySession(TcpClient tcp, IClusterClient client, ILogger<GatewaySession> logger)
     {
@@ -90,6 +91,7 @@ public sealed class GatewaySession
                 {
                     var move = MessageCodec.Decode<MoveRequest>(payload);
                     await _client.GetGrain<IPlayerGrain>(_playerId).Move(move.X, move.Y);
+                    await UpdateInterestAsync(move.X, move.Y);
                 }
                 break;
 
@@ -104,18 +106,45 @@ public sealed class GatewaySession
         _playerId = Interlocked.Increment(ref _idCounter);
         var player = _client.GetGrain<IPlayerGrain>(_playerId);
         var result = await player.Login(request.Name);
-        _zoneId = result.ZoneId;
 
-        var provider = _client.GetStreamProvider(GameStreams.ProviderName);
-        var stream = provider.GetStream<ZoneEvent>(
-            StreamId.Create(GameStreams.ZoneNamespace, _zoneId));
-        _subscription = await stream.SubscribeAsync(OnZoneEventAsync);
+        _streamProvider = _client.GetStreamProvider(GameStreams.ProviderName);
+        await UpdateInterestAsync(result.X, result.Y);
 
         _logger.LogInformation("Player {PlayerId} '{Name}' logged in to {Zone}",
-            _playerId, request.Name, _zoneId);
+            _playerId, request.Name, result.ZoneId);
 
         await SendAsync(Opcode.LoginResp,
             new LoginResponse(result.PlayerId, true, result.ZoneId, result.X, result.Y));
+    }
+
+    /// <summary>
+    /// 플레이어 위치를 중심으로 한 3x3 관심영역(AOI)에 맞춰 존 스트림 구독 집합을 갱신한다.
+    /// 셀을 이동하면 새로 보이는 존을 구독하고, 시야를 벗어난 존은 구독 해제한다.
+    /// </summary>
+    private async Task UpdateInterestAsync(float x, float y)
+    {
+        if (_streamProvider is null)
+            return;
+
+        _currentZoneId = WorldGrid.ZoneIdOf(x, y);
+        var desired = new HashSet<string>(WorldGrid.NeighborsOf(x, y));
+
+        foreach (var zoneId in _subscriptions.Keys.Where(z => !desired.Contains(z)).ToList())
+        {
+            try { await _subscriptions[zoneId].UnsubscribeAsync(); }
+            catch { /* best effort */ }
+            _subscriptions.Remove(zoneId);
+        }
+
+        foreach (var zoneId in desired)
+        {
+            if (_subscriptions.ContainsKey(zoneId))
+                continue;
+
+            var stream = _streamProvider.GetStream<ZoneEvent>(
+                StreamId.Create(GameStreams.ZoneNamespace, zoneId));
+            _subscriptions[zoneId] = await stream.SubscribeAsync(OnZoneEventAsync);
+        }
     }
 
     private async Task OnZoneEventAsync(ZoneEvent evt, StreamSequenceToken? token)
@@ -145,15 +174,16 @@ public sealed class GatewaySession
 
     private async Task CleanupAsync()
     {
-        if (_subscription is not null)
+        foreach (var handle in _subscriptions.Values)
         {
-            try { await _subscription.UnsubscribeAsync(); }
+            try { await handle.UnsubscribeAsync(); }
             catch { /* best effort */ }
         }
+        _subscriptions.Clear();
 
-        if (_playerId != 0 && _zoneId.Length > 0)
+        if (_playerId != 0 && _currentZoneId.Length > 0)
         {
-            try { await _client.GetGrain<IZoneGrain>(_zoneId).Leave(_playerId); }
+            try { await _client.GetGrain<IZoneGrain>(_currentZoneId).Leave(_playerId); }
             catch { /* best effort */ }
         }
 
