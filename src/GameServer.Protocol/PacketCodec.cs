@@ -10,6 +10,9 @@ public static class PacketCodec
 {
     public const int HeaderSize = sizeof(int) + sizeof(ushort); // 6
 
+    /// <summary>허용하는 최대 프레임 length 값(opcode+payload). 길이 필드 악용에 의한 오버플로/메모리 폭주 방지.</summary>
+    public const int MaxFrameLength = 1 << 20; // 1 MiB
+
     /// <summary>opcode와 payload를 하나의 프레임 바이트 배열로 인코딩한다.</summary>
     public static byte[] Encode(Opcode opcode, ReadOnlySpan<byte> payload)
     {
@@ -35,8 +38,12 @@ public static class PacketCodec
             return false;
 
         int length = BinaryPrimitives.ReadInt32LittleEndian(buffer);
-        int frameTotal = sizeof(int) + length;
-        if (length < sizeof(ushort) || buffer.Length < frameTotal)
+        // 비정상 길이는 프로토콜 위반: 이후 산술 오버플로/메모리 폭주를 막기 위해 즉시 거부한다.
+        if (length < sizeof(ushort) || length > MaxFrameLength)
+            throw new InvalidDataException($"Invalid frame length: {length}");
+
+        int frameTotal = sizeof(int) + length; // length가 캡되어 오버플로 불가
+        if (buffer.Length < frameTotal)
             return false;
 
         opcode = (Opcode)BinaryPrimitives.ReadUInt16LittleEndian(buffer[sizeof(int)..]);

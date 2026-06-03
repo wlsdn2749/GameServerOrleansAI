@@ -24,8 +24,8 @@ public sealed class GatewaySession
     private readonly List<byte> _inbound = [];
 
     private long _playerId;
-    private string _currentZoneId = "";
     private IStreamProvider? _streamProvider;
+    private (int X, int Y)? _interestCell;
     private readonly Dictionary<string, StreamSubscriptionHandle<ZoneEvent>> _subscriptions = [];
 
     public GatewaySession(TcpClient tcp, IClusterClient client, ILogger<GatewaySession> logger)
@@ -51,9 +51,11 @@ public sealed class GatewaySession
                 await DrainFramesAsync(ct);
             }
         }
-        catch (Exception ex) when (ex is IOException or OperationCanceledException or SocketException)
+        catch (Exception ex) when (ex is IOException or OperationCanceledException or SocketException or InvalidDataException)
         {
-            // client disconnected — normal
+            // client disconnected, or sent a malformed/oversize frame — drop the connection
+            if (ex is InvalidDataException)
+                _logger.LogWarning("Dropping session for player {PlayerId}: {Reason}", _playerId, ex.Message);
         }
         finally
         {
@@ -90,8 +92,14 @@ public sealed class GatewaySession
                 if (_playerId != 0)
                 {
                     var move = MessageCodec.Decode<MoveRequest>(payload);
-                    await _client.GetGrain<IPlayerGrain>(_playerId).Move(move.X, move.Y);
+                    if (!WorldGrid.IsValidPosition(move.X, move.Y))
+                    {
+                        await SendAsync(Opcode.Error, new ErrorPacket("invalid coordinates"));
+                        break;
+                    }
+                    // 구독을 먼저 갱신(새 존 구독) 후 이동을 발행한다 → subscribe-after-publish 경쟁 방지.
                     await UpdateInterestAsync(move.X, move.Y);
+                    await _client.GetGrain<IPlayerGrain>(_playerId).Move(move.X, move.Y);
                 }
                 break;
 
@@ -103,6 +111,12 @@ public sealed class GatewaySession
 
     private async Task HandleLoginAsync(LoginRequest request)
     {
+        if (_playerId != 0)
+        {
+            await SendAsync(Opcode.Error, new ErrorPacket("already logged in"));
+            return;
+        }
+
         _playerId = Interlocked.Increment(ref _idCounter);
         var player = _client.GetGrain<IPlayerGrain>(_playerId);
         var result = await player.Login(request.Name);
@@ -126,21 +140,23 @@ public sealed class GatewaySession
         if (_streamProvider is null)
             return;
 
-        _currentZoneId = WorldGrid.ZoneIdOf(x, y);
-        var desired = new HashSet<string>(WorldGrid.NeighborsOf(x, y));
+        var cell = WorldGrid.CellOf(x, y);
+        if (_interestCell == cell)
+            return; // 중심 셀이 그대로면 구독 변경 없음(경계 떨림에도 무작업) — 히스테리시스
 
-        foreach (var zoneId in _subscriptions.Keys.Where(z => !desired.Contains(z)).ToList())
+        _interestCell = cell;
+        var desired = WorldGrid.Neighbors(cell.CellX, cell.CellY);
+        var (toSubscribe, toUnsubscribe) = Aoi.Diff(_subscriptions.Keys, desired);
+
+        foreach (var zoneId in toUnsubscribe)
         {
             try { await _subscriptions[zoneId].UnsubscribeAsync(); }
-            catch { /* best effort */ }
+            catch (Exception ex) { _logger.LogWarning(ex, "Unsubscribe from {Zone} failed", zoneId); }
             _subscriptions.Remove(zoneId);
         }
 
-        foreach (var zoneId in desired)
+        foreach (var zoneId in toSubscribe)
         {
-            if (_subscriptions.ContainsKey(zoneId))
-                continue;
-
             var stream = _streamProvider.GetStream<ZoneEvent>(
                 StreamId.Create(GameStreams.ZoneNamespace, zoneId));
             _subscriptions[zoneId] = await stream.SubscribeAsync(OnZoneEventAsync);
@@ -149,8 +165,19 @@ public sealed class GatewaySession
 
     private async Task OnZoneEventAsync(ZoneEvent evt, StreamSequenceToken? token)
     {
-        if (evt is EntityMovedEvent moved)
-            await SendAsync(Opcode.EntityMoved, new EntityMoved(moved.PlayerId, moved.X, moved.Y));
+        switch (evt)
+        {
+            case EntityMovedEvent m:
+                await SendAsync(Opcode.EntityMoved, new EntityMoved(m.PlayerId, m.X, m.Y));
+                break;
+            case EntityEnteredEvent e:
+                await SendAsync(Opcode.EntityEntered,
+                    new EntityEntered(e.Player.PlayerId, e.Player.Name, e.Player.X, e.Player.Y));
+                break;
+            case EntityLeftEvent l:
+                await SendAsync(Opcode.EntityLeft, new EntityLeft(l.PlayerId));
+                break;
+        }
     }
 
     private async Task SendAsync<T>(Opcode opcode, T packet)
@@ -177,17 +204,19 @@ public sealed class GatewaySession
         foreach (var handle in _subscriptions.Values)
         {
             try { await handle.UnsubscribeAsync(); }
-            catch { /* best effort */ }
+            catch (Exception ex) { _logger.LogWarning(ex, "Unsubscribe on cleanup failed"); }
         }
         _subscriptions.Clear();
 
-        if (_playerId != 0 && _currentZoneId.Length > 0)
+        if (_playerId != 0)
         {
-            try { await _client.GetGrain<IZoneGrain>(_currentZoneId).Leave(_playerId); }
-            catch { /* best effort */ }
+            // 멤버십 단일 진실원: grain이 자기 현재 존에서 퇴장(게이트웨이가 추정한 존에 의존하지 않음).
+            try { await _client.GetGrain<IPlayerGrain>(_playerId).Logout(); }
+            catch (Exception ex) { _logger.LogWarning(ex, "Logout failed for player {PlayerId}", _playerId); }
         }
 
         _tcp.Dispose();
+        _sendLock.Dispose();
         _logger.LogInformation("Session for player {PlayerId} closed", _playerId);
     }
 }

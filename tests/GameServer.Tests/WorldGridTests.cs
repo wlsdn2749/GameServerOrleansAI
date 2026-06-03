@@ -52,4 +52,36 @@ public class WorldGridTests
     {
         Assert.Equal(WorldConstants.DefaultZoneId, WorldGrid.ZoneIdOf(0f, 0f));
     }
+
+    [Theory]
+    [InlineData(0f, 0f, true)]
+    [InlineData(50f, -50f, true)]
+    [InlineData(float.NaN, 0f, false)]
+    [InlineData(0f, float.NaN, false)]
+    [InlineData(float.PositiveInfinity, 0f, false)]
+    [InlineData(float.NegativeInfinity, 0f, false)]
+    [InlineData(WorldGrid.MaxCoord + 1f, 0f, false)]
+    [InlineData(WorldGrid.MinCoord - 1f, 0f, false)]
+    public void IsValidPosition_rejects_non_finite_and_out_of_bounds(float x, float y, bool expected)
+    {
+        Assert.Equal(expected, WorldGrid.IsValidPosition(x, y));
+    }
+
+    [Fact]
+    public void Clamp_maps_non_finite_to_zero_and_clamps_finite_to_world_bounds()
+    {
+        // 비유한 값(NaN/Infinity)은 안전하게 0(스폰)으로.
+        var (nx, ny) = WorldGrid.Clamp(float.NaN, float.PositiveInfinity);
+        Assert.Equal(0f, nx);
+        Assert.Equal(0f, ny);
+
+        // 유한하지만 범위 밖이면 경계로 클램프.
+        var (cx, cy) = WorldGrid.Clamp(WorldGrid.MinCoord - 999f, 10f);
+        Assert.Equal(WorldGrid.MinCoord, cx);
+        Assert.Equal(10f, cy);
+
+        var (hx, hy) = WorldGrid.Clamp(WorldGrid.MaxCoord + 999f, 10f);
+        Assert.Equal(WorldGrid.MaxCoord, hx);
+        Assert.Equal(10f, hy);
+    }
 }

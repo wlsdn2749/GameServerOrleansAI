@@ -9,6 +9,21 @@ public static class WorldGrid
     /// <summary>셀 한 변의 월드 단위 길이.</summary>
     public const float CellSize = 32f;
 
+    /// <summary>월드 좌표 허용 범위(이 밖은 비정상 입력으로 간주). 무한 셀 키 생성/grain 활성화 폭주 방지.</summary>
+    public const float MinCoord = -100_000f;
+    public const float MaxCoord = 100_000f;
+
+    /// <summary>유한하고 월드 경계 내인 좌표인지 검사한다(NaN/Infinity 거부).</summary>
+    public static bool IsValidPosition(float x, float y)
+        => float.IsFinite(x) && float.IsFinite(y)
+           && x >= MinCoord && x <= MaxCoord
+           && y >= MinCoord && y <= MaxCoord;
+
+    /// <summary>비정상/범위 밖 좌표를 월드 경계로 클램프한다(NaN→0). 방어적 용도.</summary>
+    public static (float X, float Y) Clamp(float x, float y)
+        => (Math.Clamp(float.IsFinite(x) ? x : 0f, MinCoord, MaxCoord),
+            Math.Clamp(float.IsFinite(y) ? y : 0f, MinCoord, MaxCoord));
+
     /// <summary>월드 좌표가 속한 셀 좌표(내림 분할, 음수 포함).</summary>
     public static (int CellX, int CellY) CellOf(float x, float y)
         => ((int)MathF.Floor(x / CellSize), (int)MathF.Floor(y / CellSize));

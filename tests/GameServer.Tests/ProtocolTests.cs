@@ -49,6 +49,29 @@ public class ProtocolTests
     }
 
     [Fact]
+    public void TryReadFrame_throws_on_oversize_length()
+    {
+        // 길이 필드에 MaxFrameLength 초과 값을 심은 악의적 프레임.
+        Span<byte> frame = stackalloc byte[8];
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(frame, PacketCodec.MaxFrameLength + 1);
+        var bytes = frame.ToArray();
+
+        Assert.Throws<InvalidDataException>(() =>
+            PacketCodec.TryReadFrame(bytes, out _, out _, out _));
+    }
+
+    [Fact]
+    public void TryReadFrame_throws_on_too_small_length()
+    {
+        Span<byte> frame = stackalloc byte[8];
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(frame, 1); // < opcode 크기
+        var bytes = frame.ToArray();
+
+        Assert.Throws<InvalidDataException>(() =>
+            PacketCodec.TryReadFrame(bytes, out _, out _, out _));
+    }
+
+    [Fact]
     public void EntityMoved_round_trips_through_full_codec()
     {
         var moved = new EntityMoved(7, 10.25f, -3.5f);

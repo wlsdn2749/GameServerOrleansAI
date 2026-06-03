@@ -32,6 +32,32 @@ public class ZoneTransitionTests(ClusterFixture fixture)
     }
 
     [Fact]
+    public async Task Move_with_non_finite_coordinates_is_clamped_not_crashed()
+    {
+        var player = _cluster.GrainFactory.GetGrain<IPlayerGrain>(2003);
+        await player.Login("griefer");
+
+        // 악의적 좌표: grain이 죽지 않고 유효 존에 남아야 한다.
+        await player.Move(float.NaN, float.PositiveInfinity);
+
+        var snapshot = await player.GetSnapshot();
+        Assert.True(WorldGrid.IsValidPosition(snapshot.X, snapshot.Y));
+        Assert.Equal(WorldGrid.ZoneIdOf(snapshot.X, snapshot.Y), snapshot.ZoneId);
+    }
+
+    [Fact]
+    public async Task Logout_removes_player_from_current_zone()
+    {
+        var player = _cluster.GrainFactory.GetGrain<IPlayerGrain>(2004);
+        await player.Login("leaver");
+
+        await player.Logout();
+
+        var zone = _cluster.GrainFactory.GetGrain<IZoneGrain>(WorldConstants.DefaultZoneId);
+        Assert.DoesNotContain(await zone.GetPlayers(), p => p.PlayerId == 2004);
+    }
+
+    [Fact]
     public async Task Move_within_same_cell_keeps_zone()
     {
         var player = _cluster.GrainFactory.GetGrain<IPlayerGrain>(2002);

@@ -79,6 +79,23 @@ void HandlePacket(Opcode opcode, byte[] payload)
             Console.WriteLine($"[{name}] <- EntityMoved {who} -> ({moved.X},{moved.Y})");
             break;
 
+        case Opcode.EntityEntered:
+            var entered = MessageCodec.Decode<EntityEntered>(payload);
+            if (entered.PlayerId != myId)
+                Console.WriteLine($"[{name}] <- EntityEntered #{entered.PlayerId} '{entered.Name}' at ({entered.X},{entered.Y})");
+            break;
+
+        case Opcode.EntityLeft:
+            var left = MessageCodec.Decode<EntityLeft>(payload);
+            if (left.PlayerId != myId) // 자기 자신의 셀 이동에 따른 self-leave는 표시하지 않음
+                Console.WriteLine($"[{name}] <- EntityLeft #{left.PlayerId}");
+            break;
+
+        case Opcode.Error:
+            var err = MessageCodec.Decode<ErrorPacket>(payload);
+            Console.WriteLine($"[{name}] <- Error: {err.Message}");
+            break;
+
         default:
             Console.WriteLine($"[{name}] <- {opcode} ({payload.Length} bytes)");
             break;

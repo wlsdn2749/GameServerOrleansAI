@@ -38,26 +38,45 @@ public sealed class PlayerGrain(
     public async Task Move(float x, float y)
     {
         long id = this.GetPrimaryKeyLong();
+
+        // 방어적 검증: 비정상/범위 밖 좌표는 월드 경계로 클램프해 grain을 절대 죽이지 않는다.
+        if (!WorldGrid.IsValidPosition(x, y))
+            (x, y) = WorldGrid.Clamp(x, y);
+
         string oldZoneId = state.State.ZoneId;
         string newZoneId = WorldGrid.ZoneIdOf(x, y);
 
+        // 셀 경계를 넘었으면: 새 존에 '먼저' 입장(겹침은 안전), 그 다음 이전 존에서 퇴장.
+        // 어느 쪽이 실패해도 "어느 존에도 없는" 공백 상태가 생기지 않게 한다.
+        if (newZoneId != oldZoneId)
+        {
+            await GrainFactory.GetGrain<IZoneGrain>(newZoneId)
+                .Enter(new PlayerSnapshot(id, state.State.Name, newZoneId, x, y));
+            await GrainFactory.GetGrain<IZoneGrain>(oldZoneId).Leave(id);
+        }
+
+        // 전환이 성공한 뒤에 상태를 영속화한다(쓰기-후-전환이 아니라 전환-후-쓰기).
         state.State.X = x;
         state.State.Y = y;
         state.State.ZoneId = newZoneId;
         await state.WriteStateAsync();
-
-        // 셀 경계를 넘었으면 이전 존에서 퇴장하고 새 존에 입장한다.
-        if (newZoneId != oldZoneId)
-        {
-            await GrainFactory.GetGrain<IZoneGrain>(oldZoneId).Leave(id);
-            await GrainFactory.GetGrain<IZoneGrain>(newZoneId).Enter(Snapshot(id));
-        }
 
         await GrainFactory.GetGrain<IZoneGrain>(newZoneId).NotifyMove(id, x, y);
     }
 
     public Task<PlayerSnapshot> GetSnapshot()
         => Task.FromResult(Snapshot(this.GetPrimaryKeyLong()));
+
+    public async Task Logout()
+    {
+        if (!state.State.LoggedIn)
+            return;
+
+        await GrainFactory.GetGrain<IZoneGrain>(state.State.ZoneId)
+            .Leave(this.GetPrimaryKeyLong());
+        state.State.LoggedIn = false;
+        await state.WriteStateAsync();
+    }
 
     private PlayerSnapshot Snapshot(long id)
         => new(id, state.State.Name, state.State.ZoneId, state.State.X, state.State.Y);
