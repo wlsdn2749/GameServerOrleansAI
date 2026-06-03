@@ -1,0 +1,36 @@
+# .NET / Visual Studio
+bin/
+obj/
+out/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.vs/
+.vscode/
+*.swp
+
+# Build / publish
+artifacts/
+publish/
+*.binlog
+
+# Rider
+.idea/
+
+# Claude Code local settings
+.claude/
+
+# Test results
+[Tt]est[Rr]esults/
+*.trx
+*.coverage
+*.coveragexml
+
+# OS
+Thumbs.db
+.DS_Store
